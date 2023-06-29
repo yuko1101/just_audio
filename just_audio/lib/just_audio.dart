@@ -2542,6 +2542,8 @@ class ConcatenatingAudioSource extends AudioSource {
   /// The number of [AudioSource]s.
   int get length => children.length;
 
+  ShuffleOrder get shuffleOrder => _shuffleOrder;
+
   AudioSource operator [](int index) => children[index];
 
   @override
