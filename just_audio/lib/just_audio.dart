@@ -138,6 +138,7 @@ class AudioPlayer {
   bool _playInterrupted = false;
   bool _platformLoading = false;
   AndroidAudioAttributes? _androidAudioAttributes;
+  WebCrossOrigin? _webCrossOrigin;
   final bool _androidApplyAudioAttributes;
   final bool _handleAudioSessionActivation;
 
@@ -866,7 +867,8 @@ class AudioPlayer {
       return duration;
     } on PlatformException catch (e) {
       try {
-        throw PlayerException(int.parse(e.code), e.message);
+        throw PlayerException(int.parse(e.code), e.message,
+            (e.details as Map<dynamic, dynamic>?)?.cast<String, dynamic>());
       } on FormatException catch (_) {
         if (e.code == 'abort') {
           throw PlayerInterruptedException(e.message);
@@ -1195,6 +1197,29 @@ class AudioPlayer {
         usage: audioAttributes.usage.value));
   }
 
+  /// Set the `crossorigin` attribute on the `<audio>` element backing this
+  /// player instance on web (see
+  /// [HTMLMediaElement crossorigin](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/crossOrigin) ).
+  ///
+  /// If [webCrossOrigin] is null (the initial state), the URL will be fetched
+  /// without CORS. If it is `useCredentials`, a CORS request will be made
+  /// exchanging credentials (via cookies/certificates/HTTP authentication)
+  /// regardless of the origin. If it is 'anonymous', a CORS request will be
+  /// made, but credentials are exchanged only if the URL is fetched from the
+  /// same origin.
+  Future<void> setWebCrossOrigin(WebCrossOrigin? webCrossOrigin) async {
+    if (_disposed) return;
+    if (!kIsWeb && !_isUnitTest()) return;
+
+    await (await _platform).setWebCrossOrigin(
+      SetWebCrossOriginRequest(
+          crossOrigin: webCrossOrigin == null
+              ? null
+              : WebCrossOriginMessage.values[webCrossOrigin.index]),
+    );
+    _webCrossOrigin = webCrossOrigin;
+  }
+
   /// Release all resources associated with this player. You must invoke this
   /// after you are done with the player.
   Future<void> dispose() async {
@@ -1445,6 +1470,11 @@ class AudioPlayer {
                 ? ShuffleModeMessage.all
                 : ShuffleModeMessage.none));
         if (checkInterruption()) return platform;
+        if (kIsWeb && _webCrossOrigin != null) {
+          await platform.setWebCrossOrigin(SetWebCrossOriginRequest(
+            crossOrigin: WebCrossOriginMessage.values[_webCrossOrigin!.index],
+          ));
+        }
         for (var audioEffect in _audioPipeline._audioEffects) {
           await audioEffect._activate(platform);
           if (checkInterruption()) return platform;
@@ -1520,7 +1550,13 @@ class PlayerException implements Exception {
   /// is provided.
   final String? message;
 
-  PlayerException(this.code, this.message);
+  /// On Android/iOS/macOS, contains details of the error. For errors associated
+  /// with a particular audio source, the `"index"` key maps to the index of the
+  /// audio source in the sequence.
+  final Map<String, dynamic> details;
+
+  PlayerException(this.code, this.message, [Map<String, dynamic>? details])
+      : details = details ?? <String, dynamic>{};
 
   @override
   String toString() => "($code) $message";
@@ -3481,6 +3517,9 @@ class DefaultShuffleOrder extends ShuffleOrder {
 /// An enumeration of modes that can be passed to [AudioPlayer.setLoopMode].
 enum LoopMode { off, one, all }
 
+/// Possible values that can be passed to [AudioPlayer.setWebCrossOrigin].
+enum WebCrossOrigin { anonymous, useCredentials }
+
 /// The stand-in platform implementation to use when the player is in the idle
 /// state and the native platform is deallocated.
 class _IdleAudioPlayer extends AudioPlayerPlatform {
@@ -3576,6 +3615,12 @@ class _IdleAudioPlayer extends AudioPlayerPlatform {
   Future<SetShuffleOrderResponse> setShuffleOrder(
       SetShuffleOrderRequest request) async {
     return SetShuffleOrderResponse();
+  }
+
+  @override
+  Future<SetWebCrossOriginResponse> setWebCrossOrigin(
+      SetWebCrossOriginRequest request) async {
+    return SetWebCrossOriginResponse();
   }
 
   @override
